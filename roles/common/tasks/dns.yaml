@@ -1,0 +1,17 @@
+---
+
+- name: copy dns yaml files host
+  copy:
+    src: dns/
+    dest: /usr/local/kube/dns/
+  tags:
+    - dns
+
+- name: kubectl apply kube-dns yaml
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl apply -f /usr/local/kube/dns/kube-dns.yaml
+    kubectl apply -f /usr/local/kube/dns/dns-horizontal-autoscaler.yaml
+  when: inventory_hostname == groups['masters'][0]
+  tags:
+    - dns

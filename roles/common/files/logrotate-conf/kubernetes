@@ -1,0 +1,9 @@
+/var/log/kubernetes/*.log {
+    daily
+    rotate 7
+    copytruncate
+    missingok
+    compress
+    maxsize 10G
+    minsize 1024k
+}

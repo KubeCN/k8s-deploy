@@ -1,0 +1,319 @@
+---
+
+- name: Set history format
+  template:
+    newline_sequence: "\n"
+    trim_blocks: no
+    backup: yes
+    force: yes
+    src: history-format.sh
+    dest: /usr/local/bin/history-format.sh
+    group: root
+    owner: root
+    mode: 0755
+  tags:
+    - dep
+
+- name: Exec set-history-format
+  shell: |
+    bash /usr/local/bin/history-format.sh
+  tags:
+    - dep
+
+- name: Configure localhost if not configured
+  blockinfile:
+    dest: /etc/hosts
+    create: yes
+    block: |
+        127.0.0.1   localhost localhost.localdomain localhost4 localhost4.localdomain4
+        ::1         localhost localhost.localdomain localhost6 localhost6.localdomain6
+  when:
+    - ansible_distribution == 'Ubuntu' and has_gpu
+  tags:
+    - dep
+
+- name: Copy nvidia-docker-requirement to ubuntu gpu hosts
+  copy:
+    src: docker/nvidia-docker-requirement
+    dest: /usr/bin/nvidia-docker-requirement
+    mode: 0755
+  when:
+    - ansible_distribution == 'Ubuntu' and has_gpu
+  tags:
+    - dep
+
+- name: prepare nvidia-docker env
+  shell: |
+    /usr/bin/nvidia-docker-requirement
+  when:
+    - ansible_distribution == 'Ubuntu' and has_gpu
+  tags:
+    - dep
+
+- name: Install useful packages, such as vim etc...
+  yum:
+    name: "{{item}}"
+    state: present
+  with_items:
+    - vim
+    - ntpdate
+    - nfs-utils
+    - socat
+    - ipset
+    - ipvsadm
+    - wget
+    - xfsprogs
+    - dos2unix
+    - htop
+    - bind-utils
+    - lsof
+    - psmisc
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - dep
+
+- name: Install useful packages, such as vim etc...
+  apt:
+    name: "{{item}}"
+    state: present
+  with_items:
+    - vim
+    - ntpdate
+    - nfs-common
+    - socat
+    - ipset
+    - ipvsadm
+    - xfsprogs
+    - dos2unix
+    - htop
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - dep
+
+- name: Install nvidia-driver from ppa:graphics-drivers/ppa repo
+  apt:
+    name: "{{item}}"
+    state: present
+  with_items:
+    - "nvidia-driver-{{nvidia_driver_version}}"
+  when:
+    - ansible_distribution == 'Ubuntu' and has_gpu
+  tags:
+    - dep
+
+- name: Stop firewall service avoid being installed before
+  service:
+    name: firewalld
+    state: stopped
+    enabled: no
+  ignore_errors: yes
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - dep
+
+- name: Stop firewall service avoid being installed before
+  service:
+    name: ufw
+    state: stopped
+    enabled: no
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - dep
+
+# enable loop module
+- name: Enable loop module
+  shell: |
+    modprobe loop
+  tags:
+    - dep
+
+# create loop device
+# fix docker issue that cannot create loop device in container, so create it in host node.
+# https://github.com/moby/moby/issues/27886
+- name: use 'losetup -f' to make OS create loop device
+  shell: |
+    losetup -f
+  tags:
+    - dep
+
+# fix sysctl: cannot stat /proc/sys/net/netfilter/nf_conntrack_max: No such file or directory
+- name: Enable modprobe ip_conntrack
+  shell: |
+    modprobe {{ item }}
+  with_items:
+    - ip_conntrack
+  tags:
+    - dep
+
+- name: Set ipv4 related config for host
+  blockinfile:
+    dest: /etc/sysctl.conf
+    create: yes
+    block: |
+      net.ipv4.ip_forward = 1
+      net.ipv4.conf.all.rp_filter = 0
+      net.ipv4.ip_nonlocal_bind = 1
+      net.ipv4.tcp_syncookies = 1
+      net.ipv4.tcp_tw_reuse = 1
+      net.ipv4.tcp_fin_timeout = 30
+      net.ipv4.tcp_keepalive_time = 900
+      net.ipv4.tcp_keepalive_intvl = 30
+      net.ipv4.tcp_keepalive_probes = 3
+  tags:
+    - dep
+
+- name: Take effect even after reboot
+  shell: |
+    sysctl -p
+  tags:
+    - dep
+
+- name: configure limits parameters
+  blockinfile:
+    dest: /etc/security/limits.conf
+    create: yes
+    block: |
+      *          soft    nofile         1048576
+      *          hard    nofile         1048576
+      *          soft    nproc          100000
+      *          hard    nproc          100000
+  tags:
+    - dep
+
+- name: load ipvs kernel module
+  shell: |
+    modprobe {{ item }}
+  with_items:
+    - ip_vs
+    - ip_vs_rr
+    - ip_vs_wrr
+    - ip_vs_sh
+  tags:
+    - dep
+
+- name: Load ip_vs module automatically at boot
+  blockinfile:
+    dest: /etc/modules-load.d/ip_vs.conf
+    create: yes
+    block: |
+      ip_vs
+      ip_vs_rr
+      ip_vs_wrr
+      ip_vs_sh
+  tags:
+    - dep
+
+- name: Install chrony
+  yum:
+    name: chrony
+    state: present
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - dep
+    - ntp
+
+- name: Install chrony
+  apt:
+    name: chrony
+    state: present
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - dep
+    - ntp
+
+- name: "modify ntp server to: {{ntp_server}}"
+  shell: |
+    sed -i "s/centos.pool.ntp.org/{{ ntp_server }}/g" /etc/chrony.conf
+  notify:
+    - Restart centos chronyd
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - dep
+    - ntp
+
+- name: "modify ntp server to: {{ntp_server}}"
+  replace:
+    dest: /etc/chrony/chrony.conf
+    regexp: "^pool"
+    replace: "#pool"
+  notify:
+    - Restart ubuntu chrony
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - dep
+    - ntp
+
+- name: Do not use Ubuntu default allow rules
+  replace:
+    dest: /etc/chrony/chrony.conf
+    regexp: "^allow*"
+    replace: "#allow"
+  notify:
+    - Restart ubuntu chrony
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - dep
+    - ntp
+
+- name: Use local allow rules
+  lineinfile:
+    dest: /etc/chrony/chrony.conf
+    line: "allow 0.0.0.0/0"
+    state: present
+  notify:
+    - Restart ubuntu chrony
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - dep
+    - ntp
+
+- name: Set hwclock to UTC time
+  shell: |
+    timedatectl set-local-rtc 0
+  ignore_errors: yes
+  tags:
+    - dep
+    - ntp
+
+- name: Set timzezone to Shanghai
+  shell: |
+    timedatectl set-timezone Asia/Shanghai
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - dep
+    - ntp
+
+# chrony enabled by default in fact, but just in case it was disabled
+- name: Enable and start chrony service
+  service:
+    name: chronyd
+    state: started
+    enabled: yes
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - dep
+    - ntp
+
+# chrony enabled by default in fact, but just in case it was disabled
+- name: Enable and start chrony service
+  service:
+    name: chrony
+    state: started
+    enabled: yes
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - dep
+    - ntp

@@ -1,0 +1,46 @@
+# The mirror system uses the connecting IP address of the client and the update status of each mirror to pick mirrors that are updated to and geographically close to the client.
+# You should use this for CentOS updates unless you are manually picking other mirrors.
+# If the mirrorlist= does not work for you, as a fall back you can try the remarked out baseurl= line instead.
+
+# https://developer.aliyun.com/mirror/centos
+# https://mirrors.aliyun.com/repo/Centos-7.repo
+
+[base]
+name=CentOS-$releasever - Base
+# mirrorlist=http://mirrorlist.centos.org/?release=$releasever&arch=$basearch&repo=os&infra=$infra
+baseurl=https://mirrors.aliyun.com/centos/$releasever/os/$basearch/
+gpgcheck=0
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+
+[updates]
+name=CentOS-$releasever - Updates
+# mirrorlist=http://mirrorlist.centos.org/?release=$releasever&arch=$basearch&repo=updates&infra=$infra
+baseurl=https://mirrors.aliyun.com/centos/$releasever/updates/$basearch/
+gpgcheck=0
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+
+[extras]
+name=CentOS-$releasever - Extras
+# mirrorlist=http://mirrorlist.centos.org/?release=$releasever&arch=$basearch&repo=extras&infra=$infra
+baseurl=https://mirrors.aliyun.com/centos/$releasever/extras/$basearch/
+gpgcheck=0
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+
+[centosplus]
+name=CentOS-$releasever - Plus
+# mirrorlist=http://mirrorlist.centos.org/?release=$releasever&arch=$basearch&repo=centosplus&infra=$infra
+baseurl=https://mirrors.aliyun.com/centos/$releasever/centosplus/$basearch/
+gpgcheck=0
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7
+
+[contrib]
+name=CentOS-$releasever - Contrib
+# mirrorlist=http://mirrorlist.centos.org/?release=$releasever&arch=$basearch&repo=contrib&infra=$infra
+baseurl=https://mirrors.aliyun.com/centos/$releasever/contrib/$basearch/
+gpgcheck=0
+enabled=0
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-7

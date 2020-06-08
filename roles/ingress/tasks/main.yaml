@@ -1,0 +1,198 @@
+---
+
+- name: create ingress-nginx dir to store yaml
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  with_items:
+    - /usr/local/kube/ingress/nginx/
+  tags:
+    - ingress
+
+- name: render ingress yaml
+  template:
+    src: ingress-nginx.yaml
+    dest: /usr/local/kube/ingress/nginx/ingress-nginx.yaml
+    mode: 0640
+  when:
+    - need_install_ingress
+  tags:
+    - ingress
+    - ingress_upgrade
+
+# TODO: kubectl taint nodes {{ item }} ingress-nginx=true:NoSchedule --overwrite
+- name: Set ingress-nginx node label
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl label node {{ ansible_hostname }} ingress-nginx=true --overwrite
+  ignore_errors: yes
+  when:
+    - need_install_ingress
+  tags:
+    - ingress
+
+- name: Set l7-ingress node label
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl label node {{ ansible_hostname }} node-role.kubernetes.io/l7-ingress=l7-ingress --overwrite
+  ignore_errors: yes
+  when:
+    - "'ingress_nginxs_l7' in group_names"
+  tags:
+    - ingress
+
+- name: Set l4-ingress node label
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl label node {{ ansible_default_ipv4.address }} node-role.kubernetes.io/l4-ingress=l4-ingress --overwrite
+  ignore_errors: yes
+  when:
+    - "'ingress_nginxs_l4' in group_names"
+  tags:
+    - ingress
+
+- name: kubectl apply ingress-nginx
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl apply -f /usr/local/kube/ingress/nginx/ingress-nginx.yaml
+  when:
+    - inventory_hostname == groups['ingress_nginxs_l7'][0]
+  tags:
+    - ingress
+    - ingress_upgrade
+
+- name: Copy ingress logrotate config file
+  copy:
+    src: ingress-logrotate
+    dest: /etc/logrotate.d/ingress
+  tags: ingress
+
+- name: Add cron job to run ingress logrotate
+  cron:
+    name="ingress logrotate in every 5 mins" job="sudo /sbin/logrotate -f /etc/logrotate.d/ingress &>> /tmp/ingress-logrotate.log" minute="*/5"
+  tags: ingress
+
+- name: Update nginx-ingress secrets and pods
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl -n ingress-nginx get secret | grep nginx-ingress | awk '{print $1}'| xargs -I {} kubectl -n ingress-nginx delete secret {}
+    kubectl -n ingress-nginx get pod -o wide| grep {{ ansible_default_ipv4.address }} | grep nginx-ingress | awk '{print $1}'| xargs -I {} kubectl -n ingress-nginx delete po {} --force --grace-period=0
+  when:
+    - inventory_hostname == groups['ingress_nginxs_l7'][0]
+  tags:
+    - update_cert
+
+- name: Create vip related directory, such as keepalived
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - /etc/keepalived
+  tags:
+    - ingress
+
+- name: Install keepalived
+  yum:
+    name: keepalived
+    state: present
+  tags:
+    - ingress
+
+- name: render check_haproxy_status.sh to /etc/keepalived directory
+  template:
+    src: check-ingress-status.sh
+    dest: /etc/keepalived/check-ingress-status.sh
+    mode: 0755
+  tags:
+    - ingress
+
+- name: render keepalived config file
+  template:
+    newline_sequence: "\n"
+    backup: yes
+    force: yes
+    src: keepalived.conf
+    dest: /etc/keepalived/keepalived.conf
+    group: root
+    owner: root
+    mode: 0644
+  tags:
+    - ingress
+
+- name: render keepalived log config file
+  template:
+    newline_sequence: "\n"
+    trim_blocks: no
+    backup: yes
+    force: yes
+    src: keepalived-log-config.sh
+    dest: /usr/local/bin/keepalived-log-config.sh
+    group: root
+    owner: root
+    mode: 0755
+  tags:
+    - ingress
+
+- name: write keepalived log to file
+  shell: |
+    bash /usr/local/bin/keepalived-log-config.sh
+  ignore_errors: yes
+  tags:
+    - ingress
+
+- name: copy keepalived logrotate config file
+  copy:
+    force: yes
+    src: keepalived-logrotate
+    dest: /etc/logrotate.d/keepalived-logrotate
+  tags:
+    - ingress
+
+- name: Start keepalived to keep ingress's HA
+  service:
+    name: keepalived.service
+    enabled: True
+    state: restarted
+  tags:
+    - ingress
+    - update_cert
+
+- name: Uninstall keepalived
+  shell: |
+    systemctl disable --now keepalived
+    systemctl stop keepalived
+    rm -rf /etc/keepalived/
+  tags:
+    - uninstall-ingress
+    - uninstall-kube
+
+- name: Uninstall ingress-nginx
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl delete -f /usr/local/kube/ingress/nginx/ingress-nginx.yaml --force
+  when:
+    - inventory_hostname == groups['ingress_nginxs_l7'][0]
+  ignore_errors: yes
+  tags:
+    - uninstall-ingress
+    - uninstall-kube
+
+- name: Delete ingress-nginx node label
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl label node {{ ansible_hostname }} ingress-nginx- --overwrite
+  ignore_errors: yes
+  tags:
+    - uninstall-ingress
+    - uninstall-kube
+
+- name: Remove ingress-nginx directory
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - /usr/local/kube/ingress/nginx/
+  tags:
+    - uninstall-ingress
+    - uninstall-kube

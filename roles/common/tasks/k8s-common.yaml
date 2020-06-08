@@ -1,0 +1,143 @@
+---
+
+- name: install kube bin from repo
+  shell: |
+    yum install -y kubectl-{{ k8s_version }} kubelet-{{ k8s_version }}
+    rm -rfv /usr/lib/systemd/system/kubelet.service.d/
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+    - kube-upgrade
+
+- name: Create kubernetes related directory
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - /etc/kubernetes/manifests
+    - /etc/kubernetes/pki
+    - /var/lib/kubelet
+    - /var/log/kubernetes
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+
+- name: install kube bin from repo
+  shell: |
+    apt install -y kubectl-{{ k8s_version }} kubelet-{{ k8s_version }}
+    rm -rfv /usr/lib/systemd/system/kubelet.service.d/
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+    - kube-upgrade
+
+- name: Create kube-env.sh to store k8s env
+  shell: |
+    if [ ! -f /etc/profile.d/kube-env.sh ]
+    then
+      touch /etc/profile.d/kube-env.sh
+    fi
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+
+- name: kubectl bash-completion
+  yum:
+    name: bash-completion
+    state: present
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+
+- name: Set k8s enviroment
+  template:
+    src: kube-env.sh
+    dest: /etc/profile.d/kube-env.sh
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+
+- name: let kube-env take effect
+  shell: |
+    bash /etc/profile.d/kube-env.sh
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+
+- name: Kube completion
+  template:
+    newline_sequence: "\n"
+    trim_blocks: no
+    backup: yes
+    force: yes
+    src: kube-completion.sh
+    dest: /usr/local/bin/kube-completion.sh
+    group: root
+    owner: root
+    mode: 0755
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+
+- name: Exec kube completion
+  shell: |
+    bash /usr/local/bin/kube-completion.sh
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+
+- name: Configure logrotate for kubernetes and docker containers to all hosts
+  copy:
+    src: logrotate-conf/
+    dest: /etc/logrotate.d/
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+    - logrotate
+
+- name: Create kube-cert dir
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  with_items:
+    - /etc/kubernetes/pki
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+
+- name: distribute kube ca.key and ca.crt
+  copy:
+    src: "{{ item.src }}"
+    dest: "/etc/kubernetes/pki/{{ item.dest }}"
+  with_items:
+    - { src: pki/ca.key, dest: ca.key }
+    - { src: pki/ca.crt, dest: ca.crt }
+  tags:
+    - kube-master
+    - kube-worker
+    - kube
+    - update_cert
+
+- name: "delete /etc/kubernetes"
+  shell: |
+    rm -rf /etc/kubernetes/
+    rm -rf /etc/profile.d/kube-env.sh
+  ignore_errors: yes
+  tags:
+    - uninstall-kube

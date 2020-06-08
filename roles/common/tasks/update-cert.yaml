@@ -1,0 +1,18 @@
+---
+
+- name: Update kube-dns secrets and pods
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl get secret -n kube-system | grep kube-dns | awk '{print $1}'| xargs -I {} kubectl delete secret -n kube-system {}
+    kubectl get pod -n kube-system | grep kube-dns | awk '{print $1}'| xargs -I {} kubectl delete pod -n kube-system {}
+  tags:
+    - update_cert_sp
+
+# NOTE: should not remove `calico-etcd-secrets`, so `grep -v etcd` to avoid it in secret selection.
+- name: Update calico secrets and pods
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl get secret -n kube-system | grep calico | grep -v etcd | awk '{print $1}'| xargs -I {} kubectl delete secret -n kube-system {}
+    kubectl get pod -n kube-system | grep calico | awk '{print $1}'| xargs -I {} kubectl delete pod -n kube-system {}
+  tags:
+    - update_cert_sp

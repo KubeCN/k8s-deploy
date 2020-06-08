@@ -1,0 +1,20 @@
+---
+
+- name: Systemd Reload
+  shell: |
+    systemctl daemon-reload
+
+- name: Restart centos chronyd
+  service:
+    name: chronyd
+    state: restarted
+
+- name: Restart ubuntu chrony
+  service:
+    name: chrony
+    state: restarted
+
+- name: docker container prune
+  shell: |
+    docker container prune --force
+  ignore_errors: yes

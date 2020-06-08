@@ -1,0 +1,291 @@
+---
+
+- name: Install docker-ce
+  yum:
+    name: docker-ce-{{ docker_version }}
+    state: present
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - docker
+    - docker_patch
+
+- name: Stop docker service to change mount directory
+  service:
+    name: docker
+    enabled: True
+    state: started
+  ignore_errors: yes
+  tags:
+    - docker
+
+- name: Install docker-ce
+  apt:
+    name: docker-ce={{ ubuntu_docker_version }}
+    state: present
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - docker
+
+- name: Install nvidia-docker2
+  apt:
+    name: nvidia-docker2
+    state: present
+  when:
+    - ansible_distribution == 'Ubuntu' and has_gpu
+  tags:
+    - docker
+
+- name: Make docker configure directory
+  file:
+    path: /etc/docker
+    state: directory
+  tags:
+    - docker
+
+- name: Remove docker0
+  shell: |
+    ip link delete docker0
+  tags:
+    - remove_docker0
+
+- name: Specify docker daemon config
+  copy:
+    src: docker/docker-daemon.json
+    dest: /etc/docker/daemon.json
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - docker
+    - remove_docker0
+
+- name: Specify docker daemon config
+  copy:
+    src: docker/docker-daemon-nvidia.json
+    dest: /etc/docker/daemon.json
+  when:
+    - ansible_distribution == 'Ubuntu' and has_gpu
+  tags:
+    - docker
+    - remove_docker0
+
+- name: Specify docker.service
+  template:
+    src: docker.service.j2
+    dest: /usr/lib/systemd/system/docker.service
+  notify: Systemd Reload
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - docker
+    - update_docker_service_file
+
+- name: Check whether docker should mount to an alone partition
+  shell: |
+    lsblk | grep {{ docker_mount_path }}
+  register: docker_partition_alone_reg
+  ignore_errors: yes
+  tags:
+    - docker
+
+- name: Stop docker service to change mount directory
+  service:
+    name: docker
+    enabled: false
+    state: stopped
+  when:
+    - docker_partition_alone_reg is succeeded
+  tags:
+    - docker
+
+- name: Umount device by UUID firstly
+  mount:
+    path: /var/lib/docker/overlay2
+    src: /dev/{{ docker_mount_path }}
+    fstype: xfs
+    opts: defaults
+    state: absent
+  ignore_errors: yes
+  when:
+    - docker_partition_alone_reg is succeeded
+  tags:
+    - docker
+
+- name: xfs Check
+  shell: |
+    blkid /dev/{{ docker_mount_path }} | grep xfs
+  register: is_xfs
+  ignore_errors: yes
+  when:
+    - docker_partition_alone_reg is succeeded
+  tags:
+    - docker
+
+- name: Format to xfs for Docker
+  shell: |
+    mkfs.xfs -f -n ftype=1 /dev/{{ docker_mount_path }}
+  when:
+    - docker_partition_alone_reg is succeeded and is_xfs.rc != 0
+  tags:
+    - docker
+
+- name: Get blkid UUID
+  shell: |
+    blkid -o value -s UUID /dev/{{ docker_mount_path }}
+  register: docker_mount_UUID
+  when:
+    - docker_partition_alone_reg is succeeded
+  tags:
+    - docker
+
+- name: Mount up device by UUID
+  mount:
+    path: /var/lib/docker
+    src: UUID={{ docker_mount_UUID.stdout }}
+    fstype: xfs
+    opts: defaults
+    state: present
+  when:
+    - docker_partition_alone_reg is succeeded
+  tags:
+    - docker
+
+- name: Reload fstab to take effective
+  command:
+    mount -a
+  when:
+    - docker_partition_alone_reg is succeeded
+  tags:
+    - docker
+
+- name: Fix docker.service if can not start
+  shell: |
+    rm -rf /var/lib/docker
+  tags:
+    - fix_docker
+
+- name: Enable and start docker
+  service:
+    name: docker.service
+    enabled: yes
+    state: restarted
+  register: docker_start_status
+  notify: Systemd Reload
+  ignore_errors: yes
+  tags:
+    - docker
+    - remove_docker0
+    - fix_docker
+    - docker_patch
+    - update_docker_service_file
+
+- name: To force a start docker.service
+  shell: |
+    systemctl reset-failed docker.service
+  when:
+    - docker_start_status is failed
+  tags:
+    - docker
+    - fix_docker
+
+- name: If docker started error, try start again
+  shell: |
+    systemctl start docker.service
+  when:
+    - docker_start_status is failed
+  tags:
+    - docker
+    - fix_docker
+
+- name: Create docker related directory
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - /var/lib/kubelet
+  tags:
+    - docker
+    - docker_secret
+
+- name: delete docker config.json
+  file:
+    path: /etc/docker/daemon.json
+    state: absent
+  ignore_errors: yes
+  tags:
+    - uninstall-docker
+
+- name: Stop docker service
+  service:
+    name: docker
+    enabled: false
+    state: stopped
+  ignore_errors: yes
+  tags:
+    - uninstall-docker
+
+# remove not only docker rpm, but also its related packages
+- name: Uninstall docker
+  yum:
+    name: docker*
+    state: absent
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - uninstall-docker
+
+# remove not only docker rpm, but also its related packages
+- name: Uninstall docker
+  apt:
+    name: docker*
+    state: absent
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - uninstall-docker
+
+- name: remove docker dm, such as docker-thinpool etc
+  shell: |
+    dmsetup remove -f {{ item }}
+  with_items:
+    - docker-thinpool
+    - docker-thinpool_tmeta
+    - docker-thinpool_tdata
+  ignore_errors: yes
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - uninstall-docker
+
+- name: remove docker virtual group
+  shell: |
+    vgremove -y docker
+  ignore_errors: yes
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - uninstall-docker
+
+- name: remove docker physical group
+  shell: |
+    pvremove -y /dev/{{ docker_mount_path }}
+  ignore_errors: yes
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - uninstall-docker
+
+# fix the file system read-only error after reboot
+- name: umount path for vg_sys-lv_root & vg_sys-lv_swap in fstab
+  blockinfile:
+    dest: /etc/fstab
+    state: absent
+    create: yes
+    block: |
+      /dev/mapper/vg_sys-lv_root /                       ext4    defaults        1 1
+      /dev/mapper/vg_sys-lv_swap swap                    swap    defaults        0 0
+  when:
+    - ansible_distribution == 'CentOS' and docker_partition_alone_reg is succeeded
+  tags:
+    - uninstall-docker

@@ -1,0 +1,228 @@
+---
+
+# Note: the playbook is used to upgrade os, if we want to upgrade os, should follow steps below:
+# 1. run `upgrade-kernel` tag to install basic repo and the desired kernel version
+# 2. run `reboot` tag to let desired kernel take effect
+# 3. run `upgrade-pkg` to install related packages to align with the new kernel
+
+
+# set dns server before yum update to avoid resolve yum repo server fail
+- name: Config resolv.conf:01
+  file:
+    path: /etc/resolv.conf
+    attr: "-i"
+  tags:
+    - upgrade-kernel
+    - repo
+
+- name: Config resolv.conf:02
+  template:
+    src: resolv.j2
+    dest: /etc/resolv.conf
+  tags:
+    - upgrade-kernel
+    - repo
+
+- name: Config resolv.conf:03
+  file:
+    path: /etc/resolv.conf
+    attr: "+i"
+  tags:
+    - upgrade-kernel
+    - repo
+
+# remove undesired yum repos
+- name: yum clean all CentOS* repos
+  shell: |
+    rm -rf /etc/yum.repos.d/CentOS-*
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-kernel
+    - upgrade-pkg
+    - repo
+
+- name: disable immutable for /etc/apt/sources.list
+  file:
+    path: /etc/apt/sources.list
+    attr: "-i"
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - upgrade-pkg
+
+- name: copy repo to all hosts
+  copy:
+    src: "repos/{{ item }}"
+    dest: /etc/yum.repos.d/
+  with_items:
+    - centos-aliyun.repo
+    - elrepo.repo
+    - docker-ce.repo
+    - kube-aliyun.repo
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-kernel
+    - repo
+
+- name: install epel repo
+  shell: |
+    yum remove -y epel-release && \
+    yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm 2> /dev/null
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-kernel
+    - repo
+
+- name: Copy ubuntu.list to all ubuntu hosts
+  copy:
+    src: repos/ubuntu1804-aliyun.list
+    dest: /etc/apt/sources.list
+    group: root
+    owner: root
+    backup: yes
+    force: yes
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - upgrade-pkg
+
+- name: add ppa:graphics-drivers/ppa repo to ubuntu
+  shell: |
+    apt-key adv --keyserver keyserver.ubuntu.com --recv-keys 7EA0A9C3F273FCD8
+    apk install -y software-properties-common
+    add-apt-repository -y ppa:graphics-drivers/ppa
+  when:
+    - ansible_distribution == 'Ubuntu' and has_gpu
+  tags:
+    - upgrade-pkg
+
+- name: Copy kube-aliyun.list to all ubuntu hosts
+  copy:
+    src: repos/kube-aliyun.list
+    dest: /etc/apt/kube-aliyun.list
+    group: root
+    owner: root
+    backup: yes
+    force: yes
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - upgrade-pkg
+
+- name: add kube-key
+  shell: |
+    apt update
+    apt install -y apt-transport-https
+    curl https://mirrors.aliyun.com/kubernetes/apt/doc/apt-key.gpg | apt-key add -
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - upgrade-pkg
+
+# yum clean all
+- name: yum clean all
+  shell: |
+    yum clean all
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-kernel
+    - repo
+
+# yum makecache
+- name: yum makecache
+  shell: |
+    yum makecache
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-kernel
+    - repo
+
+# apt clean all
+- name: apt-get clean all
+  shell: |
+    apt-get clean all
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - upgrade-pkg
+
+# apt makecache
+- name: apt makecache
+  shell: |
+    apt-get update
+    systemctl unmask lvm2-lvmetad
+    systemctl enable lvm2-lvmetad
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - upgrade-pkg
+
+- name: Upgrade Kernel
+  yum:
+    name: kernel-lt
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-kernel
+
+- name: Set grub default to use latest kernel
+  shell: |
+    grub2-mkconfig -o /boot/grub2/grub.cfg
+    grub2-set-default 0
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-kernel
+
+# yum upgrade
+- name: upgrade all packages, this may cost several minutes
+  yum:
+    name: '*'
+    state: latest
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-pkg
+
+# apt-get upgrade
+# FIX: add `force_apt_get` to fix the issue "Unable to find APTITUDE in path" when deploying.
+- name: upgrade all packages, this may cost several minutes
+  apt:
+    name: '*'
+    state: latest
+    force_apt_get: True
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - upgrade-pkg
+
+- name: yum remove kernel libs and tools
+  shell: |
+    yum remove -y kernel-tools-libs.x86_64 kernel-tools.x86_64
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-pkg
+
+- name: yum install latest kernel tools
+  shell: |
+    yum install -y kernel-lt-tools.x86_64
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-pkg
+
+- name: rpm remove old kernel
+  shell: |
+    rpm -e --nodeps --allmatches kernel-3.10.0
+    rm -rf /etc/yum.repos.d/CentOS-*
+  ignore_errors: yes
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - upgrade-pkg

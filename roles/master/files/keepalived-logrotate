@@ -1,0 +1,16 @@
+/var/log/keepalived/keepalived.log {
+    su root root
+
+    copytruncate
+
+    weekly
+    rotate 5
+    dateext
+    dateformat .%Y%m%d-%s
+    compress
+
+    minsize 10M
+    maxsize 20M
+
+    missingok
+}

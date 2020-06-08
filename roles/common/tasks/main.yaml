@@ -1,0 +1,45 @@
+---
+
+- name: Add users to authorized_keys
+  authorized_key:
+    key: "{{ lookup('file', 'ssh-public-keys/' ~ item ~ '.pub') }}"
+    user: appuser
+    state: present
+  with_items:
+    - kube
+  tags:
+    - dep
+    - key
+
+- name: Remove users from authorized_keys
+  authorized_key:
+    key: "{{ lookup('file', 'ssh-public-keys/' ~ item ~ '.pub') }}"
+    user: appuser
+    state: absent
+  with_items:
+    - kube
+  tags:
+    - uninstall-ssh-key
+
+- name: Reboot
+  shell: |
+    /sbin/reboot
+  tags: reboot
+
+- include: upgrade-os.yaml
+
+- include: dep.yaml
+
+- include: docker.yaml
+
+- include: k8s-common.yaml
+
+- include: dns.yaml
+
+- include: calico.yaml
+
+- include: addon.yaml
+
+- include: update-cert.yaml
+
+- include: gpu-images.yaml

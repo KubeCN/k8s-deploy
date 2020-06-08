@@ -1,0 +1,9 @@
+/var/log/nginx/*.log {
+    rotate 7
+    copytruncate
+    missingok
+    compress
+    maxsize 10G
+    minsize 5G
+    su root root
+}

@@ -1,0 +1,65 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  namespace: kube-system
+  name: kube-apiserver
+spec:
+  hostNetwork: true
+
+  volumes:
+    - name: cert
+      hostPath:
+        path: /etc/kubernetes
+    - name: logpath
+      hostPath:
+        path: /var/log
+    - name: localtime
+      hostPath:
+        path: /etc/localtime
+
+  containers:
+    - image: aksrepos.azurecr.io/mirror/hyperkube-amd64:v{{ k8s_version }}
+      name: kube-apiserver
+
+      volumeMounts:
+        - name: cert
+          mountPath: /etc/kubernetes
+          readOnly: true
+        - name: localtime
+          mountPath: /etc/localtime
+        - name: logpath
+          mountPath: /var/log
+
+      command:
+        - "/bin/sh"
+        - "-c"
+        - |-
+          /hyperkube apiserver \
+          --advertise-address={{ ansible_default_ipv4.address }} \
+          --bind-address={{ ansible_default_ipv4.address }} \
+          --secure-port=6443 \
+          --insecure-port=0 \
+          --tls-private-key-file=/etc/kubernetes/pki/apiserver.key \
+          --tls-cert-file=/etc/kubernetes/pki/apiserver.crt \
+          --client-ca-file=/etc/kubernetes/pki/ca.crt \
+          --etcd-servers={% for item in groups['etcds'] %}http://{{item}}:2379{% if not loop.last %},{% endif %}{% endfor %} \
+          --etcd-prefix={{ kube_etcd_prefix }} \
+          --storage-backend=etcd3 \
+          --service-cluster-ip-range={{ service_subnet }} \
+          --service-node-port-range=30000-32767 \
+          --authorization-mode=RBAC \
+          --enable-admission-plugins=ServiceAccount,NamespaceLifecycle,NamespaceExists,LimitRanger,ResourceQuota,DefaultStorageClass \
+          --feature-gates=TTLAfterFinished=true,VolumeSubpathEnvExpansion=true \
+          --runtime-config=settings.k8s.io/v1alpha1=true \
+          --logtostderr=true \
+          --alsologtostderr=false \
+          --v=4 \
+          --allow-privileged=true \
+          --kubelet-client-key=/etc/kubernetes/pki/kubelet-client.key \
+          --kubelet-client-certificate=/etc/kubernetes/pki/kubelet-client.crt \
+          --kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname
+
+      ports:
+        - name: https
+          containerPort: 6443
+          hostPort: 6443

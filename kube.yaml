@@ -1,0 +1,47 @@
+---
+
+- hosts:
+    - etcds
+    - masters
+    - nodes
+  roles:
+    - common
+  handlers:
+    - include: handlers/common.yaml
+
+- hosts:
+    - etcds
+  roles:
+    - etcd
+  handlers:
+    - include: handlers/common.yaml
+
+- hosts:
+    - masters
+    - vips
+  roles:
+    - master
+  handlers:
+    - include: handlers/common.yaml
+
+# - hosts:
+#     - vips
+#   roles:
+#     - master-vip
+#   handlers:
+#     - include: handlers/common.yaml
+
+- hosts:
+    - nodes
+  roles:
+    - node
+  handlers:
+    - include: handlers/common.yaml
+
+- hosts:
+    - ingress_nginxs_l7
+    - ingress_nginxs_l4
+  roles:
+    - ingress
+  handlers:
+    - include: handlers/common.yaml

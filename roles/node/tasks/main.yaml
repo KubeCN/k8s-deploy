@@ -1,0 +1,182 @@
+---
+
+- name: Copy k8s create-node-crt.sh
+  copy:
+    src: create-node-crt.sh
+    dest: /etc/kubernetes/pki/create-node-crt.sh
+    mode: 0755
+  tags:
+    - kube-worker
+    - kube
+    - update_cert
+
+- name: Config k8s node kubeconfig
+  template:
+    src: kubeconfig-node.yaml
+    dest: /etc/kubernetes/kubeconfig
+  tags:
+    - kube-worker
+    - kube
+    - update_cert
+
+- name: Generate k8s node certificates
+  shell: |
+    bash /etc/kubernetes/pki/create-node-crt.sh
+  tags:
+    - kube-worker
+    - kube
+    - update_cert
+
+- name: Config kubelet kubeconfig
+  template:
+    src: kubeconfig-node.yaml
+    dest: /var/lib/kubelet/kubeconfig
+  tags:
+    - kube-worker
+    - kube
+
+- name: render kubelet.service
+  template:
+    newline_sequence: "\n"
+    trim_blocks: no
+    backup: yes
+    force: yes
+    src: "{{item.src}}"
+    dest: "{{item.dest}}"
+    group: root
+    owner: root
+    mode: 0644
+  with_items:
+    - { src: 'kubelet.service', dest: '/usr/lib/systemd/system/kubelet.service' }
+    - { src: 'kubelet.config.yaml', dest: '/var/lib/kubelet/config.yaml' }
+    - { src: 'kubelet-extra-args.env', dest: '/var/lib/kubelet/kubelet-extra-args.env' }
+  notify: Systemd Reload
+  when:
+    - ansible_distribution == 'CentOS'
+  tags:
+    - kube-worker
+    - kube
+    - kube-upgrade
+    - kubelet_upgrade
+
+- name: render kubelet.service
+  template:
+    newline_sequence: "\n"
+    trim_blocks: no
+    backup: yes
+    force: yes
+    src: "{{item.src}}"
+    dest: "{{item.dest}}"
+    group: root
+    owner: root
+    mode: 0644
+  with_items:
+    - { src: 'kubelet.service', dest: '/usr/lib/systemd/system/kubelet.service' }
+    - { src: 'kubelet.config.yaml', dest: '/var/lib/kubelet/config.yaml' }
+    - { src: 'kubelet-extra-args.env', dest: '/var/lib/kubelet/kubelet-extra-args.env' }
+  notify: Systemd Reload
+  when:
+    - ansible_distribution == 'Ubuntu'
+  tags:
+    - kube-worker
+    - kube
+    - kube-upgrade
+    - kubelet_upgrade
+
+- name: Start kubelet on boot
+  service:
+    name: kubelet.service
+    enabled: True
+    state: restarted
+  tags:
+    - kube-worker
+    - kube
+    - kube-upgrade
+    - update_cert
+
+- name: render kube-proxy yaml
+  template:
+    src: kube-proxy.yaml
+    dest: /etc/kubernetes/manifests/kube-proxy.yaml
+  tags:
+    - kube-worker
+    - kube
+    - kube-upgrade
+    - kubeproxy_upgrade
+
+- name: set master label
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl label node {{ ansible_hostname }} node-role.kubernetes.io/master="" --overwrite
+  when:
+    - inventory_hostname in groups['masters']
+  ignore_errors: yes
+  tags:
+    - kube
+
+- name: Set worker label
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl label node {{ ansible_hostname }} node-role.kubernetes.io/worker="" --overwrite
+  when:
+    - inventory_hostname in groups['nodes']
+  ignore_errors: yes
+  tags:
+    - kube-worker
+    - kube
+
+- name: Set GPU label
+  delegate_to: "{{groups['masters'] | random}}"
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl label node {{ ansible_hostname }} arch=gpu --overwrite
+  when:
+    - ansible_distribution == 'Ubuntu' and has_gpu
+  ignore_errors: yes
+  tags:
+    - kube-worker
+    - kube
+
+- name: Stop kubelet service
+  shell: |
+    systemctl disable --now kubelet
+    systemctl stop kubelet
+  tags:
+    - uninstall-kube
+
+- name: Kill kubelet service
+  shell: |
+    pkill kubelet | true
+  ignore_errors: yes
+  tags:
+    - uninstall-kube
+    - pkill_k8s
+
+- name: restart kubelet service
+  shell: |
+    systemctl daemon-reload && \
+    systemctl restart kubelet
+  tags:
+    - restart_k8s
+    - kubelet_upgrade
+
+- name: delete kube component
+  shell: |
+    docker stop $(docker ps -q -f=name={{ item }} -n=-1) 2> /dev/null | true
+    docker rm --force $(docker ps -q -f=name={{ item }} -n=-1) 2> /dev/null | true
+  with_items:
+    - apiserver
+    - controller-manager
+    - scheduler
+    - kube-proxy
+    - ingress-nginx
+  notify: docker container prune
+  ignore_errors: yes
+  tags:
+    - uninstall-kube
+    - update_cert
+
+- name: Remove k8s logs
+  shell: |
+    rm -rf /var/log/kubernetes/*
+  tags: uninstall-kube

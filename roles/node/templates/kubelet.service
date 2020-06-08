@@ -1,0 +1,20 @@
+[Unit]
+Description=kubelet: The Kubernetes Node Agent
+Documentation=https://kubernetes.io/docs/reference/command-line-tools-reference/kubelet/
+After=docker.service
+
+[Service]
+WorkingDirectory=/var/lib/kubelet
+EnvironmentFile=-/var/lib/kubelet/kubelet-extra-args.env
+ExecStart=/usr/bin/kubelet \
+    --config=/var/lib/kubelet/config.yaml \
+    --kubeconfig=/etc/kubernetes/kubeconfig \
+    $KUBELET_EXTRA_ARGS
+Restart=always
+RestartSec=10
+StartLimitInterval=0
+ExecStop=/usr/bin/pkill kubelet
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,65 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  namespace: kube-system
+  name: kube-controller-manager
+spec:
+  hostNetwork: true
+
+  volumes:
+    - name: cert
+      hostPath:
+        path: /etc/kubernetes
+    - name: modprobe
+      hostPath:
+        path: /sbin/modprobe
+    - name: modules
+      hostPath:
+        path: /lib/modules
+    - name: logpath
+      hostPath:
+        path: /var/log
+    - name: devices
+      hostPath:
+        path: /dev
+
+  containers:
+    - image: aksrepos.azurecr.io/mirror/hyperkube-amd64:v{{ k8s_version }}
+      name: kube-controller-manager
+
+      volumeMounts:
+        - mountPath: /etc/kubernetes
+          name: cert
+          readOnly: true
+        - mountPath: /var/log
+          name: logpath
+        - mountPath: /sbin/modprobe
+          name: modprobe
+          readOnly: true
+        - mountPath: /lib/modules
+          name: modules
+          readOnly: true
+        - mountPath: /dev
+          name: devices
+
+      command:
+        - /bin/sh
+        - -c
+        - |-
+          /hyperkube controller-manager \
+          --address=0.0.0.0 \
+          --bind-address=0.0.0.0 \
+          --leader-elect=true \
+          --root-ca-file=/etc/kubernetes/pki/ca.crt \
+          --kubeconfig=/etc/kubernetes/kubeconfig \
+          --service-cluster-ip-range={{ service_subnet }} \
+          --service-account-private-key-file=/etc/kubernetes/pki/apiserver.key \
+          --feature-gates=TTLAfterFinished=true,VolumeSubpathEnvExpansion=true \
+          --logtostderr=true \
+          --alsologtostderr=false \
+          --v=4
+
+      ports:
+        - containerPort: 10252
+          hostPort: 10252
+          name: kube

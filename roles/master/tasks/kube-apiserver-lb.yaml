@@ -1,0 +1,142 @@
+---
+
+- name: create keepalived and kube-apiserver-lb dir
+  file:
+    path: "{{ item }}"
+    state: directory
+  with_items:
+    - /etc/keepalived
+    - /etc/haproxy
+  tags:
+    - vip
+    - upgrade_vip
+
+- name: render haproxy config
+  template:
+    newline_sequence: "\n"
+    backup: yes
+    force: yes
+    src: haproxy.cfg
+    dest: /etc/haproxy/haproxy.cfg
+    group: root
+    owner: root
+    mode: 0664
+  tags:
+    - vip
+    - upgrade_vip
+
+- name: render haproxy docker script
+  template:
+    newline_sequence: "\n"
+    backup: yes
+    force: yes
+    src: docker-run-haproxy.sh
+    dest: /usr/local/bin/docker-run-haproxy.sh
+    mode: 0755
+  tags:
+    - vip
+    - upgrade_vip
+
+- name: "docker run kube-apiserver-lb: haproxy"
+  shell: |
+    bash /usr/local/bin/docker-run-haproxy.sh
+  tags:
+    - vip
+    - upgrade_vip
+    - update_cert
+
+- name: Install keepalived
+  yum:
+    name: keepalived
+    state: present
+  tags:
+    - vip
+
+- name: render check_haproxy_status.sh to /etc/keepalived directory
+  template:
+    src: check-haproxy-status.sh
+    dest: /etc/keepalived/check-haproxy-status.sh
+    mode: 0755
+  tags:
+    - vip
+
+- name: render keepalived config file
+  template:
+    newline_sequence: "\n"
+    backup: yes
+    force: yes
+    src: keepalived.conf
+    dest: /etc/keepalived/keepalived.conf
+    group: root
+    owner: root
+    mode: 0644
+  tags:
+    - vip
+
+- name: render keepalived log config file
+  template:
+    newline_sequence: "\n"
+    trim_blocks: no
+    backup: yes
+    force: yes
+    src: keepalived-log-config.sh
+    dest: /usr/local/bin/keepalived-log-config.sh
+    group: root
+    owner: root
+    mode: 0755
+  tags:
+    - vip
+
+- name: write keepalived log to file
+  shell: |
+    bash /usr/local/bin/keepalived-log-config.sh
+  ignore_errors: yes
+  tags:
+    - vip
+
+- name: copy keepalived logrotate config file
+  copy:
+    force: yes
+    src: keepalived-logrotate
+    dest: /etc/logrotate.d/keepalived-logrotate
+  tags:
+    - vip
+
+- name: Start keepalived to keep haproxy's HA
+  service:
+    name: keepalived.service
+    enabled: True
+    state: restarted
+  tags:
+    - vip
+    - update_cert
+
+- name: docker stop kube-apiserver-lb haproxy
+  shell: |
+    docker stop $(docker ps -q -f=name={{ item }} -n=-1) | true
+    docker rm --force $(docker ps -q -f=name={{ item }} -n=-1) | true
+  with_items:
+    - haproxy
+    - keepalived
+  notify: docker container prune
+  ignore_errors: yes
+  tags:
+    - uninstall-vip
+    - uninstall-kube
+
+- name: Uninstall keepalived
+  shell: |
+    systemctl disable --now keepalived
+    systemctl stop keepalived
+    rm -rf /etc/keepalived/
+  tags:
+    - uninstall-vip
+    - uninstall-kube
+
+- name: delete keepalived and kube-apiserver-lb dir and file
+  shell: |
+    rm -f /usr/local/bin/docker-run-haproxy*
+    rm -f /usr/local/bin/docker-run-keepalived*
+  tags:
+    - uninstall-vip
+    - uninstall-kube

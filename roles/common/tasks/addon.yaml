@@ -1,0 +1,71 @@
+- name: create addon dir to store addon yaml
+  # delegate_to: "{{groups['masters'][0]}}"
+  file:
+    path: /usr/local/kube/addon/
+    state: directory
+    mode: 0755
+  when:
+    - inventory_hostname == groups['masters'][0]
+  tags:
+    - metric-server
+    - addon-nvidia-device-plugin
+
+- name: render addon yaml
+  # delegate_to: "{{groups['masters'][0]}}"
+  template:
+    newline_sequence: "\n"
+    trim_blocks: no
+    backup: yes
+    force: yes
+    src: "{{item.src}}"
+    dest: "/usr/local/kube/addon/{{item.path}}"
+    group: root
+    owner: root
+    mode: 0755
+  with_filetree:
+    - "templates/addon/"
+  ignore_errors: yes
+  when:
+    - inventory_hostname == groups['masters'][0] and item.state == 'file'
+  tags:
+    - metric-server
+    - addon-nvidia-device-plugin
+
+- name: deploy addon metric-server
+  # delegate_to: "{{groups['masters'][0]}}"
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl apply -f /usr/local/kube/addon/metrics-server.yaml 2> /dev/null
+  register: addon_metric_server
+  when:
+    - inventory_hostname == groups['masters'][0]
+  tags:
+    - metric-server
+- debug:
+    var: addon_metric_server.stderr_lines
+  tags:
+    - metric-server
+- debug:
+    var: addon_metric_server.stdout_lines
+  tags:
+    - metric-server
+
+- name: deploy addon nvidia-device-plugin
+  # delegate_to: "{{groups['masters'][0]}}"
+  shell: |
+    source /etc/profile.d/kube-env.sh
+    kubectl create namespace kube-administrator 2> /dev/null | true
+    kubectl apply -f /usr/local/kube/addon/nvidia-device-plugin.yaml 2> /dev/null
+  register: addon_nvidia_device_plugin
+  when:
+    - inventory_hostname == groups['masters'][0]
+  tags:
+    - addon-nvidia-device-plugin
+- debug:
+    var: addon_nvidia_device_plugin.stderr_lines
+  tags:
+    - addon-nvidia-device-plugin
+- debug:
+    var: addon_nvidia_device_plugin.stdout_lines
+  tags:
+    - addon-nvidia-device-plugin

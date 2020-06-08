@@ -1,0 +1,61 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  namespace: kube-system
+  name: kube-proxy
+spec:
+  hostNetwork: true
+
+  volumes:
+    - name: cert
+      hostPath:
+        path: /etc/kubernetes
+    - name: logpath
+      hostPath:
+        path: /var/log
+    - name: localtime
+      hostPath:
+        path: /etc/localtime
+    - name: lib-modules
+      hostPath:
+        path: /lib/modules
+        type: ""
+    - name: xtables-lock
+      hostPath:
+        path: /run/xtables.lock
+        type: FileOrCreate
+
+  containers:
+    - image: aksrepos.azurecr.io/mirror/hyperkube-amd64:v{{ k8s_version }}
+      name: kube-proxy
+
+      volumeMounts:
+        - name: cert
+          mountPath: /etc/kubernetes
+          readOnly: true
+        - name: logpath
+          mountPath: /var/log
+        - name: localtime
+          mountPath: /etc/localtime
+        - name: lib-modules
+          mountPath: /lib/modules
+          readOnly: true
+        - name: xtables-lock
+          mountPath: /run/xtables.lock
+
+      securityContext:
+        privileged: true
+      command:
+        - "/bin/sh"
+        - "-c"
+        - |-
+          /hyperkube proxy \
+          --master=https://{{ kube_apiserver_vip }}:{{ kube_apiserver_vip_port }} \
+          --kubeconfig=/etc/kubernetes/kubeconfig \
+          --cluster-cidr={{ pod_subnet }} \
+          --proxy-mode=ipvs \
+          --ipvs-scheduler=rr \
+          --masquerade-all=false \
+          --conntrack-tcp-timeout-established=1200s \
+          --logtostderr=true \
+          --v=4

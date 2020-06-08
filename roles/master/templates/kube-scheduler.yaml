@@ -1,0 +1,50 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  namespace: kube-system
+  name: kube-scheduler
+spec:
+  hostNetwork: true
+
+  volumes:
+    - name: cert
+      hostPath:
+        path: /etc/kubernetes
+    - name: localtime
+      hostPath:
+        path: /etc/localtime
+    - name: logpath
+      hostPath:
+        path: /var/log
+
+  containers:
+    - image: aksrepos.azurecr.io/mirror/hyperkube-amd64:v{{ k8s_version }}
+      name: kube-scheduler
+
+      volumeMounts:
+        - mountPath: /etc/kubernetes
+          name: cert
+          readOnly: true
+        - mountPath: /var/log
+          name: logpath
+        - mountPath: /etc/localtime
+          name: localtime
+
+      command:
+        - /bin/sh
+        - -c
+        - |-
+          /hyperkube scheduler \
+          --address=0.0.0.0 \
+          --bind-address=0.0.0.0 \
+          --kubeconfig=/etc/kubernetes/kubeconfig \
+          --leader-elect=true \
+          --feature-gates=TTLAfterFinished=true,VolumeSubpathEnvExpansion=true \
+          --logtostderr=true \
+          --alsologtostderr=false \
+          --v=4
+
+      ports:
+        - name: kube
+          containerPort: 10251
+          hostPort: 10251

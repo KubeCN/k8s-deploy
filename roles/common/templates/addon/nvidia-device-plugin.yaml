@@ -1,0 +1,38 @@
+kind: DaemonSet
+apiVersion: apps/v1
+metadata:
+  namespace: kube-system
+  name: nvidia-device-plugin
+spec:
+  selector:
+    matchLabels:
+      pod: nvidia-device-plugin
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 75%
+
+  template:
+    metadata:
+      labels:
+        pod: nvidia-device-plugin
+    spec:
+      nodeSelector:
+        arch: gpu
+      tolerations:
+        - operator: Exists
+
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+      containers:
+        - image: nvidia/k8s-device-plugin:{{ nvidia_device_plugin_version | default('1.11') }}
+          name: nvidia-device-plugin-ctr
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins

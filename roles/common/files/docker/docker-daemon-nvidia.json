@@ -1,0 +1,20 @@
+{
+    "default-runtime": "nvidia",
+    "runtimes": {
+        "nvidia": {
+            "path": "/usr/bin/nvidia-container-runtime",
+            "runtimeArgs": []
+        }
+    },
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "200m",
+        "max-file": "7"
+    },
+    "insecure-registries": [
+        "0.0.0.0/0"
+    ],
+    "max-concurrent-downloads": 10,
+    "max-concurrent-uploads": 10,
+    "bridge": "none"
+}

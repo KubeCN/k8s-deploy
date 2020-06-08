@@ -1,0 +1,28 @@
+{
+    "exec-opts": [
+        "native.cgroupdriver=systemd"
+    ],
+    "storage-driver": "overlay2",
+    "storage-opts": [
+        "overlay2.override_kernel_check=true"
+    ],
+    "log-driver": "json-file",
+    "log-opts": {
+        "max-size": "200m",
+        "max-file": "7"
+    },
+    "debug": false,
+    "log-level": "warn",
+    "registry-mirrors": [
+        "https://docker.mirrors.ustc.edu.cn/",
+        "https://hub-mirror.c.163.com"
+    ],
+    "insecure-registries": [
+        "0.0.0.0/0"
+    ],
+    "max-concurrent-downloads": 10,
+    "max-concurrent-uploads": 10,
+    "selinux-enabled": false,
+    "bridge": "none",
+    "live-restore": true
+}

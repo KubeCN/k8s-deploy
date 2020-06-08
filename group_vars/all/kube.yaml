@@ -1,0 +1,11 @@
+# etcd
+etcd_version: 3.2.16
+
+# kube
+service_subnet: 10.96.0.0/12
+pod_subnet: 10.244.0.0/16
+cluster_dns: "10.96.0.10"
+cluster_domain: cluster.local
+
+# kube-apiserver load balancer
+haproxy_version: 1.8.4

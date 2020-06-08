@@ -1,0 +1,122 @@
+---
+
+- name: render etcd deploy script
+  template:
+    newline_sequence: "\n"
+    backup: yes
+    force: yes
+    src: docker-run-etcd.sh
+    dest: /usr/local/bin/docker-run-etcd.sh
+    group: root
+    owner: root
+    mode: 0755
+  tags:
+    - etcd
+
+- name: Check whether docker_mount disk is ssd, if yes, etcd also use that disk
+  shell: |
+    lsblk -d -o rota /dev/{{ docker_mount_path }} | grep 0
+  register: is_ssd
+  ignore_errors: yes
+  tags:
+    - etcd
+
+# if has ssd, then use ssd
+- name: create softlink to use ssd as etcd db
+  shell: |
+    mkdir -p /var/lib/docker/etcd
+  when: is_ssd is succeeded
+  tags:
+    - etcd
+
+- name: Create a symbolic link
+  file:
+    src: /var/lib/docker/etcd
+    dest: /data/etcd
+    state: link
+  ignore_errors: yes
+  tags:
+    - etcd
+
+- name: Deploy etcd cluster
+  shell: |
+    bash /usr/local/bin/docker-run-etcd.sh
+  tags:
+    - etcd
+
+- name: render copy-etcdctl.sh
+  template:
+    src: copy-etcdctl.sh
+    dest: /usr/local/bin/copy-etcdctl.sh
+    mode: 0755
+  tags:
+    - etcd
+    - install-etcdctl-bin
+
+- name: install etcdctl bin
+  shell: |
+    bash /usr/local/bin/copy-etcdctl.sh
+  tags:
+    - etcd
+    - install-etcdctl-bin
+
+- name: Create etcd backup directory to store data
+  file:
+    path: /data/etcd-backups
+    state: directory
+    mode: 0755
+  tags:
+    - etcd
+    - etcd_bak
+
+- name: Copy etcd-bak.sh script
+  template:
+    newline_sequence: "\n"
+    trim_blocks: no
+    backup: yes
+    force: yes
+    src: etcd-bak.sh
+    dest: /usr/local/bin/etcd-bak.sh
+    group: root
+    owner: root
+    mode: 0755
+  tags:
+    - etcd
+    - etcd_bak
+
+- name: Add cron job to run etcd backup
+  cron:
+    name="etcd backup every 6 hours" job="sudo /usr/local/bin/etcd-bak.sh &>> /tmp/etcd-bak.log" minute="0" hour="*/6"
+  tags:
+    - etcd
+    - etcd_bak
+
+# TODO: should download the restore snapshot manually
+- name: Copy etcd-restore.sh script
+  template:
+    src: etcd-restore.sh
+    dest: /usr/bin/etcd-restore.sh
+    mode: 0755
+  tags:
+    - etcd_restore
+
+- name: docker stop etcd
+  shell: |
+    docker stop $(docker ps -q -f=name=etcd -n=-1) | true
+    docker rm --force $(docker ps -q -f=name=etcd -n=-1) | true
+    rm -f /usr/local/bin/docker-run-etcd*
+  notify: docker container prune
+  tags:
+    - uninstall-etcd
+
+- name: delete /data/etcd-backups
+  shell: |
+    rm -rf /data/etcd-backups
+  tags:
+    - uninstall-etcd
+
+- name: delete /data/etcd
+  shell: |
+    rm -rf /data/etcd
+  tags:
+    - uninstall-etcd
